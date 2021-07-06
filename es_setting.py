@@ -7,7 +7,7 @@
 # %%
 # 파이썬에 엘라스틱 서치 연결
 
-from elasticsearch import Elasticsearch
+from elasticsearch import Elasticsearch, helpers
 
 es = Elasticsearch('localhost:9200', timeout=30, max_retries=10, retry_on_timeout=True)
 
@@ -101,21 +101,55 @@ print(es.info()) # 정상적으로 출력이 되면, 엘라스틱 서치 연결 
 print(es.indices.get('document'))
 
 # %%
-# 엘라스틱 서치에 팀 문서를 추가
-import os
 
-for file_name in os.listdir('data/club'):
-    if file_name != '.DS_Store':
-        with open('data/club/'+file_name, 'r') as f:
-            contents = f.read()
-        es.index(index='document', body = {"title" : file_name.split('.')[0], "text" : contents})
+import json
+
+with open('data/namuwiki_baseball.json', 'r') as f:
+    wiki_data = json.load(f)
 
 # %%
-# 엘라스틱 서치에 선수 문서를 추가
-import os
 
-for file_name in os.listdir('data/player'):
-    if file_name != '.DS_Store':
-        with open('data/player/'+file_name, 'r') as f:
-            contents = f.read()
-        es.index(index='document', body = {"title" : file_name.split('.')[0], "text" : contents})
+from tqdm import tqdm
+
+wiki_data_title = list(wiki_data.keys())
+wiki_data_text = list(wiki_data.values())
+
+title = []
+text = []
+
+for num in tqdm(range(len(wiki_data_title))):
+    cnt = 0
+    while cnt < len(wiki_data_text[num]):
+        title.append(wiki_data_title[num])
+        text.append(wiki_data_text[num][cnt:cnt+1000])
+        cnt+=1000
+
+# %%
+
+import pandas as pd
+
+df = pd.DataFrame({'title' : title,'text' : text})
+
+buffer = []
+rows = 0
+
+for num in tqdm(range(len(df))):
+    article = {"_id": num,
+               "_index": "document",
+               "title" : df['title'][num],
+               "text" : df['text'][num]}
+
+    buffer.append(article)
+
+    rows += 1
+
+    if rows % 3000 == 0:
+        helpers.bulk(es, buffer)
+        buffer = []
+
+        print("Inserted {} articles".format(rows), end="\r")
+
+if buffer:
+    helpers.bulk(es, buffer)
+
+print("Total articles inserted: {}".format(rows))
