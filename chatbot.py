@@ -2,12 +2,6 @@ import torch
 from transformers import AutoTokenizer, AutoModelForQuestionAnswering, BertForTokenClassification, pipeline
 from elasticsearch import Elasticsearch
 import numpy as np
-from hanspell import spell_checker
-from konlpy.tag import Hannanum
-from konlpy.tag import Kkma
-from konlpy.tag import Komoran
-from konlpy.tag import Okt
-import json
 
 
 class Chatbot:
@@ -19,12 +13,6 @@ class Chatbot:
         self.es = Elasticsearch('localhost:9200')
         self.qa = self.get_qa_model()
         self.ner = self.get_ner_model()
-        self.hannanum = Hannanum()
-        self.kkma = Kkma()
-        self.komoran = Komoran()
-        self.okt = Okt()
-        with open('./baseball_term.json', encoding='utf-8') as json_file:
-            self.json_data = json.load(json_file)
 
     def get_qa_model(self):
         model = AutoModelForQuestionAnswering.from_pretrained(self.mrc_model_path)
@@ -85,15 +73,8 @@ class Chatbot:
             else:
                 tmp += ' '
 
-        if len(tmp.strip()) == 0:
-            for i in list(self.json_data.keys()):
-                if i in ner_tagged_list:
-                    return self.json_data[i]
-            return ner_tagged_list
-        else:
-            ent = tmp.replace('#', '').split()
-            result = ' '.join(ent)
-            return result
+        result = tmp.replace('#', '').split()
+        return ' '.join(result)
 
     def ner_infer(self, text):
         self.ner.eval()
@@ -125,32 +106,16 @@ class Chatbot:
         result = self.ner_postprocess(result)
         return result
 
-    def preprocess(self, question):
-        question = spell_checker.check(question).as_dict()['checked']
-        return question
-
-    def postprocess(self,ans):
-        if self.hannanum.pos(ans)[-1][-1] in ['J']:
-            ans = ans[:-len(self.hannanum.pos(ans)[-1][0])]
-        elif self.kkma.pos(ans)[-1][-1] in ['JKS', 'JKC', 'JKG', 'JKO', 'JKM', 'JKI', 'JKQ', 'JC', 'JX']:
-            ans = ans[:-len(self.kkma.pos(ans)[-1][0])]
-        elif self.komoran.pos(ans)[-1][-1] in ['JKS', 'JKC', 'JKG', 'JKO', 'JKB', 'JKV', 'JKQ', 'JC', 'JX']:
-            ans = ans[:-len(self.komoran.pos(ans)[-1][0])]
-        elif self.okt.pos(ans)[-1][-1] in ['Josa']:
-            ans = ans[:-len(self.okt.pos(ans)[-1][0])]
-        return ans
-
     def answer(self, question):
-        question = self.postprocess(question)
         query = {
             'query': {
                 'bool': {
                     'must': [
                         {'match': {'text': question}}
                     ],
-                     'should': [
-                         {'match': {'text': self.ner_infer(question)}}
-                    ]
+                    #  'should': [
+                    #      {'match': {'text': self.ner_infer(question))}}
+                    # ]
                 }
             }
         }
@@ -166,7 +131,4 @@ class Chatbot:
                 ans_lst.append((ans['answer'], ans['score'] * doc[i]['_score'] / max_scr))
         
         res, res_score = sorted(ans_lst, key=lambda x: x[1], reverse=True)[0] # [0] # 1 : score -->
-        if res_score > 0.8:
-            return self.postprocess(res), res_score
-        else:
-            return '잘 모르겠어요...', res_score
+        return res, res_score
